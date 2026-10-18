@@ -36,8 +36,20 @@ LOG_FIELDS = ["email", "company", "kind", "sent_at", "message_id"]
 # Everyone who replied or bounced; never emailed again.
 SKIP = DATA / "auto_skip.csv"
 SKIP_FIELDS = ["email", "company", "reason", "found_at", "subject"]
-# Stop new sends if this share of first emails bounces (protects the Gmail account).
+# Stop new sends if this share of first emails bounces (protects the Gmail account),
+# judged once at least MIN_SAMPLE have gone out.
 MAX_BOUNCE_RATE = 0.08
+MIN_SAMPLE = 10
+# Results from an email verification service (see import_verified.py). When present,
+# only verified addresses get first emails.
+VERIFIED = DATA / "verified.csv"
+
+
+def read_verified() -> dict[str, str] | None:
+    if not VERIFIED.exists():
+        return None
+    with VERIFIED.open(newline="") as f:
+        return {r["email"]: r["status"] for r in csv.DictReader(f)}
 
 
 def load_env() -> None:
@@ -76,6 +88,16 @@ def read_skip() -> dict[str, dict]:
         return {}
     with SKIP.open(newline="") as f:
         return {r["email"]: r for r in csv.DictReader(f)}
+
+
+def accepts_mail(domain: str) -> bool:
+    """True if the domain has an MX record (or, failing that, an A record) to deliver to."""
+    for rtype in ("MX", "A"):
+        out = subprocess.run(["dig", "+short", "+time=3", "+tries=1", rtype, domain],
+                             capture_output=True, text=True, check=False).stdout
+        if out.strip():
+            return True
+    return False
 
 
 def notify(title: str, text: str) -> None:
@@ -122,9 +144,14 @@ def scan_inbox(cfg: dict, log: list[dict]) -> dict[str, dict]:
             )
             # Each message arrives as separate (descriptor, bytes) pieces; group them by sequence number.
             grouped: dict[bytes, dict[str, bytes]] = {}
+            # Only the first piece of a message starts with its sequence number
+            # ("18930 (BODY[TEXT]..."); later pieces (" BODY[HEADER...") belong to it.
+            seq = b""
             for p in msgs:
                 if isinstance(p, tuple):
-                    seq = p[0].split()[0]
+                    first = p[0].split()[0]
+                    if first.isdigit():
+                        seq = first
                     key = "head" if b"HEADER.FIELDS" in p[0] else "body"
                     grouped.setdefault(seq, {})[key] = p[1] or b""
             for g in grouped.values():
@@ -176,11 +203,17 @@ def pick_batch(args, log: list[dict], cfg: dict, auto_skip: dict[str, dict]) -> 
     skip = {e.strip().lower() for e in cfg["skip"].split(",") if e.strip()} | set(auto_skip)
 
     if not args.followup:
-        done_companies = {r["company"].lower() for r in log}
+        # A company whose HR bounced hasn't really been reached, so another HR there may be tried.
+        bounced = {e for e, r in auto_skip.items() if r["reason"] == "bounced"}
+        done_companies = {r["company"].lower() for r in log if r["email"] not in bounced}
+        verified = read_verified()
+        allowed = {"valid", "risky"} if cfg["allow_risky"] else {"valid"}
         batch, seen = [], set()
         for c in contacts:
             co = c["company"].lower()
             if c["email"] in emailed or c["email"] in skip:
+                continue
+            if verified is not None and verified.get(c["email"]) not in allowed:
                 continue
             if cfg["one_per_company"] and (co in done_companies or co in seen):
                 continue
@@ -236,6 +269,7 @@ def main() -> None:
         "followup_days": int(os.environ.get("FOLLOWUP_AFTER_DAYS", "5")),
         "one_per_company": os.environ.get("ONE_PER_COMPANY", "true").lower() == "true",
         "skip": os.environ.get("SKIP_EMAILS", ""),
+        "allow_risky": os.environ.get("ALLOW_RISKY", "false").lower() == "true",
     }
     if args.send and not (cfg["user"] and cfg["password"] and cfg["name"]):
         sys.exit("Set GMAIL_ADDRESS, GMAIL_APP_PASSWORD and YOUR_NAME in job-outreach/.env first.")
@@ -259,9 +293,12 @@ def main() -> None:
         print(f"Skip list: {counts or 'empty'}")
         return
 
-    firsts = [r for r in log if r["kind"] == "first"]
-    bounced = sum(1 for r in auto_skip.values() if r["reason"] == "bounced")
-    if not args.followup and len(firsts) >= 20 and bounced / len(firsts) > MAX_BOUNCE_RATE:
+    # Once a verified list is in use, judge bounces only on verified sends, so bounces
+    # from the old unverified list don't keep sending paused forever.
+    verified = read_verified()
+    firsts = [r for r in log if r["kind"] == "first" and (verified is None or r["email"] in verified)]
+    bounced = sum(1 for r in firsts if auto_skip.get(r["email"], {}).get("reason") == "bounced")
+    if not args.followup and len(firsts) >= MIN_SAMPLE and bounced / len(firsts) > MAX_BOUNCE_RATE:
         notify("Job outreach paused", f"{bounced} of {len(firsts)} emails bounced. Sending stopped.")
         sys.exit(f"Paused: {bounced}/{len(firsts)} emails bounced (over {MAX_BOUNCE_RATE:.0%}). "
                  "Too many bounces can get the Gmail account blocked.")
@@ -273,7 +310,14 @@ def main() -> None:
     kind = "followup" if args.followup else "first"
     subject, body = read_template("followup.txt" if args.followup else "template.txt")
     pending = pick_batch(args, log, cfg, auto_skip)
-    batch = pending[:room]
+    batch = []
+    for c in pending:  # skip companies whose domain no longer accepts email
+        if len(batch) >= room:
+            break
+        if args.followup or accepts_mail(c["email"].split("@")[1]):
+            batch.append(c)
+        else:
+            print(f"  skipping {c['email']}: domain has no mail server")
     print(f"{len(pending)} {kind} emails pending, {sent_today} sent today, sending {len(batch)} now"
           f"{'' if args.send else ' (DRY RUN)'}\n")
 

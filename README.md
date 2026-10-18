@@ -11,6 +11,8 @@ It is built to land in the inbox rather than spam, and to never annoy anyone twi
 - **Reads your inbox first:** anyone who replies, auto-replies or bounces is never emailed again,
   and you get a macOS notification when an HR replies
 - **Protects your account:** sending pauses automatically if more than 8% of emails bounce
+- **Verified lists:** import results from an email verification service and only valid
+  addresses are emailed (`import_verified.py`); domains with no mail server are skipped
 - **Resumable:** a send log means each run picks up where the last one stopped and never double-sends
 
 Only Python's standard library is needed to send; `pdfplumber` is only for converting a PDF list.
@@ -28,7 +30,14 @@ Only Python's standard library is needed to send; `pdfplumber` is only for conve
 3. **Email text.** Edit `template.txt` and `followup.txt`. The first line is the subject.
    Available fields: `{first_name}`, `{name}`, `{company}`, `{title}`, `{my_name}`,
    `{resume_link}`, `{phone}`.
-4. **Preview** (sends nothing):
+4. **Verify the list (strongly recommended for old lists).** Upload the addresses to a
+   verification service (MillionVerifier, NeverBounce, ZeroBounce...), download the full
+   results CSV, then:
+   ```bash
+   python3 import_verified.py ~/Downloads/results.csv
+   ```
+   Set `ALLOW_RISKY=true` in `.env` to also email catch-all addresses.
+5. **Preview** (sends nothing):
    ```bash
    python3 send.py
    ```
@@ -81,6 +90,7 @@ launchctl bootout gui/$(id -u)/com.job-outreach
 | `template.txt`, `followup.txt` | Email text | yes |
 | `daily.sh` | What the daily schedule runs | yes |
 | `pdf_to_csv.py` | PDF table → CSV | yes |
+| `import_verified.py` | Verification-service results → `data/verified.csv` | yes |
 | `.env` | Gmail address, App Password, phone, resume link | **no** |
 | `data/` | Contacts, send log, skip list, run logs | **no** |
 

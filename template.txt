@@ -1,0 +1,20 @@
+Subject: SDE / AI-ML internship at {company} - Alok Kumar
+Hi {first_name},
+
+I'm Alok Kumar, a B.Tech AI student at Newton School of Technology, and I'd love to be considered for any SDE or AI/ML internship or early-career roles at {company}.
+
+A quick snapshot of what I've built:
+- Nexora: a live AI platform (React, FastAPI, PostgreSQL, Llama 3.3) that scrapes 50+ sources and turns them into structured opportunities for students - https://nexora-8y5.pages.dev/
+- DataPilot: a hybrid RAG assistant that lets non-technical users query SQL databases and documents in plain English (LangChain, FAISS, Gemini)
+- Paid open-source contributor at ForkMesh, fixing bugs and reviewing AI-agent code before it ships
+- 300+ DSA problems solved (LeetCode, Codeforces)
+
+My resume: {resume_link}
+
+If there's a relevant opening, or someone on your team I should reach out to, I'd be grateful for a pointer.
+
+Thank you for your time,
+Alok Kumar
+{phone} | https://www.linkedin.com/in/alok-kumar-40681b323/ | https://github.com/yagyaXsen
+
+If you'd rather not hear from me, just reply "no" and I won't email again.

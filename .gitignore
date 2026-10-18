@@ -1,0 +1,10 @@
+# Secrets
+.env
+
+# Contact lists, send log, skip list, run logs: personal data, never committed
+data/
+*.pdf
+*.csv
+
+__pycache__/
+.DS_Store

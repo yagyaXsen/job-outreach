@@ -270,6 +270,7 @@ def main() -> None:
         "one_per_company": os.environ.get("ONE_PER_COMPANY", "true").lower() == "true",
         "skip": os.environ.get("SKIP_EMAILS", ""),
         "allow_risky": os.environ.get("ALLOW_RISKY", "false").lower() == "true",
+        "pause_on_bounces": os.environ.get("PAUSE_ON_BOUNCES", "true").lower() == "true",
     }
     if args.send and not (cfg["user"] and cfg["password"] and cfg["name"]):
         sys.exit("Set GMAIL_ADDRESS, GMAIL_APP_PASSWORD and YOUR_NAME in job-outreach/.env first.")
@@ -298,7 +299,11 @@ def main() -> None:
     verified = read_verified()
     firsts = [r for r in log if r["kind"] == "first" and (verified is None or r["email"] in verified)]
     bounced = sum(1 for r in firsts if auto_skip.get(r["email"], {}).get("reason") == "bounced")
-    if not args.followup and len(firsts) >= MIN_SAMPLE and bounced / len(firsts) > MAX_BOUNCE_RATE:
+    rate = bounced / len(firsts) if firsts else 0.0
+    if firsts and not args.followup:
+        print(f"Bounce rate so far: {bounced}/{len(firsts)} ({rate:.0%})")
+    if (cfg["pause_on_bounces"] and not args.followup
+            and len(firsts) >= MIN_SAMPLE and rate > MAX_BOUNCE_RATE):
         notify("Job outreach paused", f"{bounced} of {len(firsts)} emails bounced. Sending stopped.")
         sys.exit(f"Paused: {bounced}/{len(firsts)} emails bounced (over {MAX_BOUNCE_RATE:.0%}). "
                  "Too many bounces can get the Gmail account blocked.")
